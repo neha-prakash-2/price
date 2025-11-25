@@ -1,36 +1,17 @@
 <?php
-// setup_db.php
+// fix_schema.php
 require __DIR__ . '/db_connect.php';
 
-echo "<h1>Database Setup Status</h1>";
+echo "<h2>Fixing Database Schema...</h2>";
 
 try {
-    // 1. Create USERS table
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100),
-        email VARCHAR(150) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        profile_photo TEXT,
-        reset_token_hash VARCHAR(64) NULL,
-        reset_token_expires_at TIMESTAMP NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
-    echo "<p>✅ Table 'users' is ready.</p>";
+    // 1. Drop the incorrect table
+    // We use CASCADE to remove any dependencies
+    $pdo->exec("DROP TABLE IF EXISTS price_history CASCADE");
+    echo "<li>🗑️ Old 'price_history' table deleted.</li>";
 
-    // 2. Create PRODUCTS table
-    $pdo->exec("CREATE TABLE IF NOT EXISTS products (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        category VARCHAR(100),
-        description TEXT,
-        image_url TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
-    echo "<p>✅ Table 'products' is ready.</p>";
-
-    // 3. Create PRICE_HISTORY table
-    $pdo->exec("CREATE TABLE IF NOT EXISTS price_history (
+    // 2. Re-create it with the CORRECT columns (specifically 'timestamp')
+    $pdo->exec("CREATE TABLE price_history (
         id SERIAL PRIMARY KEY,
         product_id INT REFERENCES products(id) ON DELETE CASCADE,
         store_name VARCHAR(100),
@@ -38,35 +19,35 @@ try {
         product_url TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
-    echo "<p>✅ Table 'price_history' is ready.</p>";
+    echo "<li>✅ New 'price_history' table created.</li>";
 
-    // 4. Insert Dummy Products (if empty)
-    $stmt = $pdo->query("SELECT COUNT(*) FROM products");
-    if ($stmt->fetchColumn() == 0) {
-        $pdo->exec("INSERT INTO products (name, category, description, image_url) VALUES 
-            ('Sony WH-1000XM5', 'Electronics', 'Industry-leading noise canceling headphones.', 'https://m.media-amazon.com/images/I/51SKmu2G9FL._AC_SL1000_.jpg'),
-            ('MacBook Air M2', 'Laptops', 'Redesigned around the next-generation M2 chip.', 'https://m.media-amazon.com/images/I/71f5Eu5lJSL._AC_SL1500_.jpg'),
-            ('PlayStation 5', 'Gaming', 'The PS5 console unleashes new gaming possibilities.', 'https://m.media-amazon.com/images/I/51051FiD9UL._SL1000_.jpg')
-        ");
-        echo "<p>➕ Added 3 sample products.</p>";
+    // 3. Populate Data
+    // We first check if we have products to link to
+    $stmt = $pdo->query("SELECT id FROM products LIMIT 3");
+    $products = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+    if (count($products) >= 1) {
+        $p1 = $products[0];
+        // Use existing product IDs to prevent foreign key errors
+        // Note: We intentionally use different IDs ($p1, etc) incase your IDs aren't 1, 2, 3
+        $sql = "INSERT INTO price_history (product_id, store_name, price, timestamp) VALUES 
+            ($p1, 'Amazon', 348.00, NOW() - INTERVAL '5 days'),
+            ($p1, 'Amazon', 329.00, NOW()),
+            ($p1, 'BestBuy', 349.99, NOW())";
+            
+        if (isset($products[1])) {
+            $p2 = $products[1];
+            $sql .= ", ($p2, 'Apple', 1199.00, NOW() - INTERVAL '30 days'),
+                       ($p2, 'Amazon', 1049.00, NOW())";
+        }
         
-        // Insert Dummy Prices
-        // We assume IDs 1, 2, 3 correspond to the products above
-        $pdo->exec("INSERT INTO price_history (product_id, store_name, price, timestamp) VALUES 
-            (1, 'Amazon', 348.00, NOW() - INTERVAL '5 days'),
-            (1, 'Amazon', 329.00, NOW()),
-            (1, 'BestBuy', 349.99, NOW()),
-            (2, 'Apple', 1199.00, NOW() - INTERVAL '30 days'),
-            (2, 'Amazon', 1049.00, NOW()),
-            (3, 'Walmart', 499.00, NOW()),
-            (3, 'Target', 499.99, NOW())
-        ");
-        echo "<p>➕ Added sample price history.</p>";
+        $pdo->exec($sql);
+        echo "<li>➕ Price history data inserted successfully.</li>";
     } else {
-        echo "<p>ℹ️ Data already exists. Skipping insertion.</p>";
+        echo "<li>⚠️ No products found. Please run the setup script again to create products first.</li>";
     }
 
-    echo "<h3><a href='index.php'>Setup Complete! Click here to go to Dashboard</a></h3>";
+    echo "<h3><a href='index.php'>Fix Complete! Go to Dashboard</a></h3>";
 
 } catch (PDOException $e) {
     echo "<h3 style='color:red'>Error: " . $e->getMessage() . "</h3>";
