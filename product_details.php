@@ -48,8 +48,8 @@ while ($row = $hist_stmt->fetch()) {
     $store = $row['store_name'];
     if (!isset($stores_data[$store])) $stores_data[$store] = [];
     
-    // CONVERSION: Assume DB stores 'Base Units' (approx USD), convert to INR for display
-    $price_inr = (float)$row['price'] * 84;
+    // CONVERSION: Removed multiplier. Assumes DB value is already in INR.
+    $price_inr = (float)$row['price'];
     
     $stores_data[$store][] = [
         'x' => $row['timestamp'],
@@ -172,8 +172,8 @@ $current_prices = $price_stmt->fetchAll();
                                 </div>
                             </div>
                             <div style="text-align: right;">
-                                <!-- CONVERSION: Display INR -->
-                                <div class="price-val">₹<?php echo number_format($p['price'] * 84, 2); ?></div>
+                                <!-- CONVERSION: Display INR Directly -->
+                                <div class="price-val">₹<?php echo number_format($p['price'], 2); ?></div>
                                 <div style="margin-top:5px;">
                                     <a href="<?php echo htmlspecialchars($p['product_url']); ?>" target="_blank" class="btn-visit">Visit Link</a>
                                 </div>
