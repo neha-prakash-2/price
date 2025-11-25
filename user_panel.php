@@ -108,7 +108,7 @@ if ($pdo) {
                 <a href="admin_panel.php" class="admin-btn">Admin Panel</a>
             <?php endif; ?>
             
-            <a href="index.php?action=logout" class="logout-btn">Logout</a>
+            <a href="logout.php?action=logout" class="logout-btn">Logout</a>
         </div>
     </div>
 
@@ -150,7 +150,7 @@ if ($pdo) {
                         <div class="p-title"><?php echo htmlspecialchars($p['name']); ?></div>
                         
                         <?php if ($p['lowest_price']): ?>
-                            <div class="p-price">From $<?php echo number_format($p['lowest_price'], 2); ?></div>
+                            <div class="p-price">From $ ₹ <?php echo number_format($p['lowest_price'], 2); ?></div>
                         <?php else: ?>
                             <div class="p-price" style="color: #9ca3af; font-size: 1rem;">Price Unavailable</div>
                         <?php endif; ?>
