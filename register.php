@@ -1,15 +1,66 @@
 <?php
+// register.php - Handles User Registration
 session_start();
 
-// Check if the user is already logged in
-if (isset($_SESSION['user_id'])) {
-    // If logged in, redirect them to their panel, not the register page
-    if (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true) {
-        header("Location: admin_panel.php");
+// 1. Include Dependencies
+// Use __DIR__ to ensure the path is always correct regardless of where the script is run
+require_once __DIR__ . '/db_connect.php';
+
+// Fix for "Call to undefined function log_activity"
+// We check if the file exists before including it to prevent crashing if it's missing
+if (file_exists(__DIR__ . '/user_activity.php')) {
+    require_once __DIR__ . '/user_activity.php';
+}
+
+$error = '';
+$success = '';
+
+// 2. Handle Form Submission
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $confirm = $_POST['confirm_password'] ?? '';
+
+    // Basic Validation
+    if (empty($name) || empty($email) || empty($password)) {
+        $error = "All fields are required.";
+    } elseif ($password !== $confirm) {
+        $error = "Passwords do not match.";
+    } elseif (strlen($password) < 6) {
+        $error = "Password must be at least 6 characters.";
     } else {
-        header("Location: user_panel.php");
+        try {
+            // Check if email already exists
+            $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
+            $stmt->execute([$email]);
+            
+            if ($stmt->fetch()) {
+                $error = "Email is already registered.";
+            } else {
+                // Insert New User
+                $hashed = password_hash($password, PASSWORD_DEFAULT);
+                
+                // Default is_admin to FALSE (0)
+                $sql = "INSERT INTO users (name, email, password, is_admin, profile_photo) VALUES (?, ?, ?, FALSE, '')";
+                $pdo->prepare($sql)->execute([$name, $email, $hashed]);
+                
+                $new_user_id = $pdo->lastInsertId();
+
+                // --- SAFE LOGGING (Fixes your fatal error) ---
+                // We check if the function exists before calling it
+                if (function_exists('log_activity')) {
+                    log_activity($pdo, $new_user_id, 'User Registered');
+                } elseif (function_exists('log_user_activity')) {
+                    log_user_activity($pdo, $new_user_id, 'User Registered');
+                }
+
+                $success = "Account created successfully! <a href='login.php'>Login here</a>";
+            }
+        } catch (PDOException $e) {
+            $error = "Database Error: " . $e->getMessage();
+        }
     }
-    exit;
 }
 ?>
 <!DOCTYPE html>
@@ -18,369 +69,55 @@ if (isset($_SESSION['user_id'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Register - PriceComp</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        /* --- Base Styles (from style.css) --- */
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-            background-image: url('https://images.unsplash.com/photo-1553095066-5014bc7b7f2d?q=80&w=2787&auto=format&fit=crop');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            color: #333;
-        }
-
-        .auth-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 2rem;
-        }
-
-        .auth-box {
-            background-color: rgba(255, 255, 255, 0.9);
-            padding: 2.5rem 3rem;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            width: 100%;
-            max-width: 450px;
-            text-align: center;
-            backdrop-filter: blur(5px);
-        }
-
-        .register-box {
-            max-width: 500px;
-        }
-
-        .title {
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-        
-        .title .highlight {
-            color: #4f46e5;
-        }
-
-        .subtitle {
-            font-size: 1.1rem;
-            color: #555;
-            margin-bottom: 2rem;
-        }
-
-        .input-group {
-            margin-bottom: 1.5rem;
-            text-align: left;
-        }
-
-        .input-group label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-            color: #333;
-        }
-
-        .input-group input[type="email"],
-        .input-group input[type="password"],
-        .input-group input[type="text"] {
-            width: 100%;
-            padding: 0.8rem 1rem;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-sizing: border-box; /* Important for padding to work correctly */
-            font-size: 1rem;
-            transition: border-color 0.3s, box-shadow 0.3s;
-        }
-
-        .input-group input:focus {
-            outline: none;
-            border-color: #4f46e5;
-            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
-        }
-
-        .btn {
-            width: 100%;
-            padding: 1rem;
-            border: none;
-            border-radius: 8px;
-            background-color: #4f46e5;
-            color: white;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-
-        .btn:hover {
-            background-color: #4338ca;
-        }
-
-        .links {
-            margin-top: 1.5rem;
-            font-size: 0.9rem;
-        }
-
-        .links a {
-            color: #4f46e5;
-            text-decoration: none;
-            font-weight: 500;
-        }
-
-        .links a:hover {
-            text-decoration: underline;
-        }
-
-        .error-message {
-            background-color: #f8d7da;
-            color: #721c24;
-            padding: 0.8rem;
-            border: 1px solid #f5c6cb;
-            border-radius: 8px;
-            margin-bottom: 1.5rem;
-        }
-
-        .btn-secondary {
-            padding: 0.6rem 1.2rem;
-            border-radius: 8px;
-            background-color: #e0e0e0;
-            color: #333;
-            cursor: pointer;
-            font-weight: 500;
-            transition: background-color 0.3s;
-            border: none;
-        }
-
-        .btn-secondary:hover {
-            background-color: #d0d0d0;
-        }
-
-        .gender-options {
-            display: flex;
-            justify-content: flex-start;
-            gap: 1.5rem;
-            align-items: center;
-        }
-
-        .gender-options input[type="radio"] {
-            margin-right: 0.3rem;
-        }
-
-        /* --- Avatar Preview on Form --- */
-        .avatar-preview-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-bottom: 1.5rem;
-            gap: 1rem;
-        }
-
-        #avatar-preview {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 4px solid #ddd;
-        }
-
-        /* --- Modal Styles (This creates the pop-up) --- */
-        .modal-overlay {
-            display: none; /* This is the key part that hides it initially */
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0, 0, 0, 0.6);
-            justify-content: center;
-            align-items: center;
-            backdrop-filter: blur(5px);
-        }
-
-        .modal-content {
-            background-color: #fff;
-            padding: 2rem;
-            border-radius: 15px;
-            width: 90%;
-            max-width: 500px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            position: relative;
-            text-align: center;
-        }
-
-        .modal-close {
-            color: #aaa;
-            position: absolute;
-            top: 10px;
-            right: 20px;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-
-        .modal-close:hover,
-        .modal-close:focus {
-            color: #000;
-        }
-
-        .modal-content h3 {
-            margin-top: 0;
-            margin-bottom: 1.5rem;
-            font-size: 1.5rem;
-        }
-
-        /* --- Avatar Selection inside the pop-up --- */
-        .avatar-selection-container {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 1rem;
-            margin-top: 0.5rem;
-        }
-
-        .avatar-selection-container label {
-            display: block;
-            cursor: pointer;
-        }
-
-        .avatar-selection-container img {
-            width: 100%;
-            max-width: 80px; /* Added for consistency */
-            height: auto;
-            border-radius: 50%;
-            border: 3px solid transparent;
-            transition: border-color 0.3s;
-        }
-
-        .avatar-selection-container input[type="radio"] {
-            display: none; /* Hide the actual radio button */
-        }
-
-        .avatar-selection-container input[type="radio"]:checked + img {
-            border-color: #4f46e5;
-            box-shadow: 0 0 10px rgba(79, 70, 229, 0.5);
-        }
+        :root { font-family: 'Inter', sans-serif; }
+        body { margin: 0; background: #f3f4f6; display: flex; align-items: center; justify-content: center; min-height: 100vh; color: #1f2937; }
+        .card { background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; max-width: 400px; }
+        h1 { margin: 0 0 0.5rem 0; font-size: 1.5rem; text-align: center; }
+        input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #d1d5db; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 0.75rem; background: #4f46e5; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+        button:hover { background: #4338ca; }
+        .msg { padding: 10px; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; text-align: center; }
+        .error { background: #fee2e2; color: #991b1b; }
+        .success { background: #dcfce7; color: #166534; }
+        .links { text-align: center; margin-top: 1.5rem; font-size: 0.9rem; }
+        .links a { color: #4f46e5; text-decoration: none; font-weight: 500; }
     </style>
 </head>
 <body>
-    <div class="auth-container">
-        <div class="auth-box register-box">
-            <h1 class="title">Create Account</h1>
-            <h2 class="subtitle">Join PriceComp Today!</h2>
+    <div class="card">
+        <h1>Create Account</h1>
+        <p style="text-align:center; color:#6b7280; margin-top:0; margin-bottom:1.5rem;">Join PriceComp today</p>
 
-            <?php
-                if (isset($_GET['error'])) {
-                    echo '<p class="error-message">' . htmlspecialchars($_GET['error']) . '</p>';
-                }
-            ?>
+        <?php if ($error): ?>
+            <div class="msg error"><?php echo htmlspecialchars($error); ?></div>
+        <?php endif; ?>
+        <?php if ($success): ?>
+            <div class="msg success"><?php echo $success; ?></div>
+        <?php endif; ?>
 
-            <form action="register_action.php" method="POST">
-                <!-- Avatar Preview + Select -->
-                <div class="avatar-preview-container">
-                    <img src="https://placehold.co/100x100/EFEFEF/AAAAAA?text=Avatar" 
-                         id="avatar-preview" alt="Selected Avatar"
-                         onerror="this.src='https://placehold.co/100x100/EFEFEF/AAAAAA?text=Avatar'">
-                    <!-- Set a default value in case user doesn't choose one -->
-                    <input type="hidden" name="profile_photo" id="profile_photo_input" value="avatar1.gif" required> 
-                    <br>
-                    <button type="button" class="btn-secondary" onclick="openModal()">Choose Avatar</button>
-                </div>
+        <?php if (empty($success)): ?>
+        <form method="post">
+            <label style="display:block; margin-bottom:0.5rem; font-weight:500;">Full Name</label>
+            <input type="text" name="name" required placeholder="John Doe">
 
-                <div class="input-group">
-                    <label for="name">Name</label>
-                    <input type="text" id="name" name="name" required>
-                </div>
-                <div class="input-group">
-                    <label>Gender</label>
-                    <div class="gender-options">
-                        <input type="radio" id="male" name="gender" value="Male" required>
-                        <label for="male">Male</label>
-                        <input type="radio" id="female" name="gender" value="Female">
-                        <label for="female">Female</label>
-                    </div>
-                </div>
-                <div class="input-group">
-                    <label for="email">Email Address</label>
-                    <input type="email" id="email" name="email" required>
-                </div>
-                <div class="input-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                <div class="input-group">
-                    <label for="confirm_password">Confirm Password</label>
-                    <input type="password" id="confirm_password" name="confirm_password" required>
-                </div>
-                <button type="submit" class="btn">Register</button>
-            </form>
-            <div class="links">
-                <p>Already have an account? <a href="login.php">Login</a></p>
-            </div>
+            <label style="display:block; margin-bottom:0.5rem; font-weight:500;">Email Address</label>
+            <input type="email" name="email" required placeholder="name@company.com">
+
+            <label style="display:block; margin-bottom:0.5rem; font-weight:500;">Password</label>
+            <input type="password" name="password" required placeholder="••••••••">
+
+            <label style="display:block; margin-bottom:0.5rem; font-weight:500;">Confirm Password</label>
+            <input type="password" name="confirm_password" required placeholder="••••••••">
+
+            <button type="submit">Sign Up</button>
+        </form>
+        <?php endif; ?>
+
+        <div class="links">
+            Already have an account? <a href="login.php">Log In</a>
         </div>
     </div>
-
-    <!-- Avatar Selection Modal -->
-    <div id="avatar-modal" class="modal-overlay">
-        <div class="modal-content">
-            <span class="modal-close" onclick="closeModal()">&times;</span>
-            <h3>Choose Your Avatar</h3>
-            <div class="avatar-selection-container">
-                <label>
-                    <input type="radio" name="avatar_choice" value="avatar1.gif" onchange="selectAvatar('avatar1.gif')">
-                    <!-- Add onerror fallback images -->
-                    <img src="avatars/avatar1.gif" alt="Avatar 1" onerror="this.src='https://placehold.co/80x80?text=1'">
-                </label>
-                <label>
-                    <input type="radio" name="avatar_choice" value="avatar2.gif" onchange="selectAvatar('avatar2.gif')">
-                    <img src="avatars/avatar2.gif" alt="Avatar 2" onerror="this.src='https://placehold.co/80x80?text=2'">
-                </label>
-                <label>
-                    <input type="radio" name="avatar_choice" value="avatar3.gif" onchange="selectAvatar('avatar3.gif')">
-                    <img src="avatars/avatar3.gif" alt="Avatar 3" onerror="this.src='https://placehold.co/80x80?text=3'">
-                </label>
-                <label>
-                    <input type="radio" name="avatar_choice" value="avatar4.gif" onchange="selectAvatar('avatar4.gif')">
-                    <img src="avatars/avatar4.gif" alt="Avatar 4" onerror="this.src='https://placehold.co/80x80?text=4'">
-                </label>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const modal = document.getElementById('avatar-modal');
-        const previewImg = document.getElementById('avatar-preview');
-        const photoInput = document.getElementById('profile_photo_input');
-
-        function openModal() {
-            modal.style.display = 'flex';
-        }
-
-        function closeModal() {
-            modal.style.display = 'none';
-        }
-
-        function selectAvatar(filename) {
-            // Update preview + hidden input
-            const newSrc = 'avatars/' + filename;
-            previewImg.src = newSrc;
-            // Add fallback for preview image as well
-            previewImg.onerror = () => { 
-                previewImg.src = 'https://placehold.co/100x100/EFEFEF/AAAAAA?text=Avatar'; 
-            }; 
-            photoInput.value = filename;
-            closeModal();
-        }
-
-        // Close modal if user clicks outside
-        window.onclick = function(event) {
-            if (event.target === modal) {
-                closeModal();
-            }
-        }
-    </script>
 </body>
 </html>
-
