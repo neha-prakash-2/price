@@ -35,10 +35,11 @@
                 <button type="submit" class="btn">Login</button>
             </form>
             <div class="links">
-                <a href="#">Forgot Password?</a>
+                <a href="forgot_password.php">Forgot Password?</a>
                 <p>Don't have an account? <a href="register.php">Register</a></p>
             </div>
         </div>
     </div>
 </body>
 </html>
+
