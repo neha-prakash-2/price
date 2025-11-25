@@ -26,14 +26,20 @@ if (!isset($_SESSION['user_id'])) {
 $product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($product_id === 0) die("Invalid product ID.");
 
+// --- Helper: Extract Domain & Simulate Price Check ---
+function get_domain_from_url($url) {
+    $parsed = parse_url($url);
+    $host = $parsed['host'] ?? 'Unknown';
+    return preg_replace('/^www\./', '', $host);
+}
+
 // --- 1. Fetch Product ---
 $stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
 $stmt->execute([$product_id]);
 $product = $stmt->fetch();
 if (!$product) die("Product not found.");
 
-// --- 2. Fetch Price History (Converted to INR) ---
-// We multiply by 84 inside the PHP loop to convert USD to INR
+// --- 2. Fetch Price History ---
 $hist_stmt = $pdo->prepare("SELECT store_name, price, timestamp FROM price_history WHERE product_id = ? ORDER BY timestamp ASC");
 $hist_stmt->execute([$product_id]);
 
@@ -42,7 +48,7 @@ while ($row = $hist_stmt->fetch()) {
     $store = $row['store_name'];
     if (!isset($stores_data[$store])) $stores_data[$store] = [];
     
-    // CONVERSION: $1 = ₹84
+    // CONVERSION: Assume DB stores 'Base Units' (approx USD), convert to INR for display
     $price_inr = (float)$row['price'] * 84;
     
     $stores_data[$store][] = [
@@ -70,7 +76,7 @@ foreach ($stores_data as $store => $data) {
 }
 $chart_data_json = json_encode(['datasets' => $datasets]);
 
-// --- 3. Fetch Current Prices (Converted to INR) ---
+// --- 3. Fetch Current Prices ---
 $price_stmt = $pdo->prepare("
     SELECT t1.store_name, t1.price, t1.product_url, t1.timestamp
     FROM price_history t1
@@ -122,7 +128,7 @@ $current_prices = $price_stmt->fetchAll();
         .price-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #f3f4f6; }
         .price-row:last-child { border-bottom: none; }
         .store-name { font-weight: 600; color: #111; }
-        .store-time { font-size: 0.8rem; color: #9ca3af; }
+        .store-source { font-size: 0.75rem; color: #6b7280; display: flex; align-items: center; gap: 4px; }
         .price-val { font-size: 1.25rem; font-weight: 700; color: #059669; }
         .btn-visit { background: #4f46e5; color: white; text-decoration: none; padding: 6px 12px; border-radius: 6px; font-size: 0.9rem; font-weight: 500; }
         .btn-visit:hover { background: #4338ca; }
@@ -160,13 +166,16 @@ $current_prices = $price_stmt->fetchAll();
                         <div class="price-row">
                             <div>
                                 <div class="store-name"><?php echo htmlspecialchars($p['store_name']); ?></div>
-                                <div class="store-time">Verified: <?php echo date('d M, Y', strtotime($p['timestamp'])); ?></div>
+                                <div class="store-source">
+                                    <!-- Show the source domain -->
+                                    Source: <?php echo htmlspecialchars(get_domain_from_url($p['product_url'])); ?>
+                                </div>
                             </div>
                             <div style="text-align: right;">
                                 <!-- CONVERSION: Display INR -->
                                 <div class="price-val">₹<?php echo number_format($p['price'] * 84, 2); ?></div>
                                 <div style="margin-top:5px;">
-                                    <a href="<?php echo htmlspecialchars($p['product_url']); ?>" target="_blank" class="btn-visit">Buy Now</a>
+                                    <a href="<?php echo htmlspecialchars($p['product_url']); ?>" target="_blank" class="btn-visit">Visit Link</a>
                                 </div>
                             </div>
                         </div>
