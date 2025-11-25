@@ -1,23 +1,44 @@
 <?php
 session_start();
+require __DIR__ . '/db_connect.php';
+
 // Check if user is logged in
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php?error=You must be logged in to view this page");
     exit;
 }
 
-// We don't need the db connection here, as the search is handled by api_handler.php
-// But we do need the session variables.
-
 $user_id = $_SESSION['user_id'];
 $name = $_SESSION['name'];
-$profile_photo = $_SESSION['profile_photo'];
-$is_admin = $_SESSION['is_admin'] ?? false; // Check if user is admin
+$profile_photo = $_SESSION['profile_photo'] ?? null; 
+$is_admin = $_SESSION['is_admin'] ?? false;
 
 // Determine avatar path
 $avatar_path = "avatars/" . ($profile_photo ? $profile_photo : 'default.png');
-// Add a fallback
 $avatar_path_with_fallback = $avatar_path . "' onerror='this.onerror=null;this.src=\"https://placehold.co/100x100/EFEFEF/AAAAAA?text=User\";'";
+
+// --- Fetch All Products Initially ---
+$products = [];
+try {
+    // Get products with their lowest price
+    // We use a subquery to find the minimum price for each product from the 'prices' table
+    $sql = "
+        SELECT 
+            p.id, 
+            p.name, 
+            p.description, 
+            p.image_url, 
+            p.category,
+            (SELECT MIN(price) FROM prices WHERE product_id = p.id) as lowest_price
+        FROM products p
+        ORDER BY p.id DESC
+    ";
+    $stmt = $pdo->query($sql);
+    $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+} catch (Exception $e) {
+    $error_message = "Failed to load products: " . $e->getMessage();
+}
 
 ?>
 <!DOCTYPE html>
@@ -26,142 +47,204 @@ $avatar_path_with_fallback = $avatar_path . "' onerror='this.onerror=null;this.s
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Panel - PriceComp</title>
-    <!-- Link to your panel_style.css -->
-    <link rel="stylesheet" href="panel.css">
+    <link rel="stylesheet" href="panel_style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Simple icon library for search icon -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Add specific styles for the product grid here or in panel_style.css */
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-top: 2rem;
+        }
+        
+        .product-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .product-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+
+        .product-image-container {
+            width: 100%;
+            height: 200px;
+            background-color: #f9fafb;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+
+        .product-image-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .product-details {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .product-category {
+            font-size: 0.85rem;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+        }
+
+        .product-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1f2937;
+            margin: 0 0 0.5rem 0;
+            line-height: 1.4;
+        }
+
+        .product-price {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #10b981; /* Green */
+            margin-top: auto; /* Push to bottom */
+            padding-top: 1rem;
+        }
+
+        .no-price {
+            font-size: 1rem;
+            color: #9ca3af;
+            font-style: italic;
+            margin-top: auto;
+            padding-top: 1rem;
+        }
+        
+        .btn-view {
+            display: block;
+            width: 100%;
+            text-align: center;
+            background-color: #4f46e5;
+            color: white;
+            padding: 0.8rem;
+            margin-top: 1rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        .btn-view:hover {
+            background-color: #4338ca;
+        }
+    </style>
 </head>
 <body>
 
-    <header class="top-bar">
+    <header class="user-panel-header">
         <div class="logo">
             <a href="user_panel.php">Price<span class="highlight">Comp</span></a>
         </div>
-        <nav class="main-nav">
-            <a href="user_panel.php" class="active">Search</a>
+        <nav class="user-nav">
+            <a href="user_panel.php" class="active">Browse</a>
             <a href="history.php">History</a>
-            <!-- Show Admin Panel link only if user is admin -->
             <?php if ($is_admin): ?>
                 <a href="admin_panel.php">Admin Panel</a>
             <?php endif; ?>
-        </nav>
-        <div class="user-menu">
-            <a href="profile.php" class="profile-link">
-                <img src="<?php echo $avatar_path_with_fallback; ?>" alt="Profile Photo" class="profile-pic">
-                <span>Hello, <?php echo htmlspecialchars($name); ?></span>
+            
+            <a href="profile.php" class="user-profile-link">
+                <img src="<?php echo $avatar_path_with_fallback; ?>" alt="Profile">
+                <span><?php echo htmlspecialchars($name); ?></span>
             </a>
-            <a href="logout.php" class="logout-btn">Logout</a>
-        </div>
+            <a href="logout.php" style="color: #ef4444;">Logout</a>
+        </nav>
     </header>
 
-    <main class="container">
+    <main class="user-main-content">
+        
+        <!-- Search Bar Section -->
         <div class="search-container">
-            <h1>Find the Best Price</h1>
-            <p>Search for any product to compare prices across different stores.</p>
-            <div class="search-box">
-                <input type="text" id="search-input" placeholder="e.g., iPhone 15 Pro, Sony WH-1000XM5...">
-                <button id="search-button"><i class="fas fa-search"></i> Search</button>
+            <h1>Find the Best Deals</h1>
+            <div class="search-form">
+                <input type="text" id="search-input" placeholder="Search products...">
+                <button class="btn" id="search-button"><i class="fas fa-search"></i> Search</button>
             </div>
         </div>
 
-        <!-- This is where the results will be displayed -->
+        <!-- Products Grid Section -->
         <div id="results-container">
-            <!-- Results will be injected here by JavaScript -->
-            <!-- Loading spinner -->
-            <div id="loading-spinner" style="display: none;">
-                <div class="spinner"></div>
-                <p>Searching for the best deals...</p>
-            </div>
+            <?php if (isset($error_message)): ?>
+                <p class="error-message"><?php echo htmlspecialchars($error_message); ?></p>
+            <?php endif; ?>
+
+            <?php if (empty($products)): ?>
+                <div style="text-align: center; margin-top: 3rem; color: #6b7280;">
+                    <i class="fas fa-box-open" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <p>No products available yet. Check back later!</p>
+                </div>
+            <?php else: ?>
+                <div class="product-grid">
+                    <?php foreach ($products as $product): ?>
+                        <div class="product-card">
+                            <div class="product-image-container">
+                                <img src="<?php echo htmlspecialchars($product['image_url']); ?>" 
+                                     alt="<?php echo htmlspecialchars($product['name']); ?>"
+                                     onerror="this.onerror=null;this.src='https://placehold.co/300x300/EFEFEF/AAAAAA?text=No+Image';">
+                            </div>
+                            <div class="product-details">
+                                <div class="product-category"><?php echo htmlspecialchars($product['category']); ?></div>
+                                <h3 class="product-title"><?php echo htmlspecialchars($product['name']); ?></h3>
+                                <p style="color: #666; font-size: 0.9rem; margin-bottom: 1rem;">
+                                    <?php echo substr(htmlspecialchars($product['description']), 0, 80) . '...'; ?>
+                                </p>
+                                
+                                <?php if ($product['lowest_price']): ?>
+                                    <div class="product-price">
+                                        From $<?php echo number_format($product['lowest_price'], 2); ?>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="no-price">Price not available</div>
+                                <?php endif; ?>
+
+                                <a href="product_details.php?id=<?php echo $product['id']; ?>" class="btn-view">Compare Prices</a>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
+
     </main>
 
     <script>
+        // Simple client-side filtering
         const searchInput = document.getElementById('search-input');
-        const searchButton = document.getElementById('search-button');
-        const resultsContainer = document.getElementById('results-container');
-        const loadingSpinner = document.getElementById('loading-spinner');
+        const productCards = document.querySelectorAll('.product-card');
 
-        // Function to perform the search
-        function performSearch() {
-            const query = searchInput.value.trim();
-            
-            if (query === "") {
-                resultsContainer.innerHTML = '<p class="error-message">Please enter a product name to search.</p>';
-                return;
-            }
+        searchInput.addEventListener('keyup', function(e) {
+            const term = e.target.value.toLowerCase();
 
-            // Show loading spinner and clear old results
-            loadingSpinner.style.display = 'block';
-            resultsContainer.innerHTML = ''; // Clear previous results
-
-            // Use fetch to call your api_handler.php
-            fetch('api_handler.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ query: query })
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                loadingSpinner.style.display = 'none'; // Hide spinner
+            productCards.forEach(card => {
+                const title = card.querySelector('.product-title').textContent.toLowerCase();
+                const category = card.querySelector('.product-category').textContent.toLowerCase();
                 
-                if (data.error) {
-                    // Handle errors from the API
-                    resultsContainer.innerHTML = `<p class="error-message">${data.error}</p>`;
-                } else if (data.length === 0) {
-                    // Handle no results
-                    resultsContainer.innerHTML = '<p class="info-message">No products found matching your search.</p>';
+                if (title.includes(term) || category.includes(term)) {
+                    card.style.display = 'flex'; // Show matches
                 } else {
-                    // Build the results HTML
-                    let html = '<h2>Search Results</h2>';
-                    data.forEach(product => {
-                        html += `
-                            <div class="result-item">
-                                <div class="result-image">
-                                    <img src="${product.image_url}" alt="${product.name}" onerror="this.onerror=null;this.src='https://placehold.co/150x150/EFEFEF/AAAAAA?text=Product';">
-                                </div>
-                                <div class="result-details">
-                                    <h3>${product.name}</h3>
-                                    <p>${product.description.substring(0, 150)}...</p>
-                                </div>
-                                <div class="result-action">
-                                    <span class="best-price">from $${parseFloat(product.best_price).toFixed(2)}</span>
-                                    <!-- Link to the product_details.php with the product ID -->
-                                    <a href="product_details.php?id=${product.id}" class="btn-view-details">View Details</a>
-                                </div>
-                            </div>
-                        `;
-                    });
-                    resultsContainer.innerHTML = html;
+                    card.style.display = 'none'; // Hide non-matches
                 }
-            })
-            .catch(error => {
-                loadingSpinner.style.display = 'none'; // Hide spinner
-                console.error('Fetch error:', error);
-                resultsContainer.innerHTML = '<p class="error-message">An error occurred while fetching results. Please try again.</p>';
             });
-        }
-
-        // Add event listeners
-        searchButton.addEventListener('click', performSearch);
-        
-        // Allow pressing Enter to search
-        searchInput.addEventListener('keypress', function(event) {
-            if (event.key === 'Enter') {
-                performSearch();
-            }
         });
-
     </script>
 
 </body>
 </html>
-
-
