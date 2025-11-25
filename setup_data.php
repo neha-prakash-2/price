@@ -1,11 +1,24 @@
 <?php
-// setup_data.php
+// setup_db.php
 require __DIR__ . '/db_connect.php';
 
-try {
-    echo "<h2>Setting up database...</h2>";
+echo "<h1>Database Setup Status</h1>";
 
-    // 1. Create 'products' table
+try {
+    // 1. Create USERS table
+    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100),
+        email VARCHAR(150) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        profile_photo TEXT,
+        reset_token_hash VARCHAR(64) NULL,
+        reset_token_expires_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+    echo "<p>✅ Table 'users' is ready.</p>";
+
+    // 2. Create PRODUCTS table
     $pdo->exec("CREATE TABLE IF NOT EXISTS products (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -14,49 +27,46 @@ try {
         image_url TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
-    echo "<li>Table 'products' checked/created.</li>";
+    echo "<p>✅ Table 'products' is ready.</p>";
 
-    // 2. Create 'price_history' table
+    // 3. Create PRICE_HISTORY table
     $pdo->exec("CREATE TABLE IF NOT EXISTS price_history (
         id SERIAL PRIMARY KEY,
-        product_id INT REFERENCES products(id),
+        product_id INT REFERENCES products(id) ON DELETE CASCADE,
         store_name VARCHAR(100),
         price DECIMAL(10, 2),
         product_url TEXT,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
-    echo "<li>Table 'price_history' checked/created.</li>";
+    echo "<p>✅ Table 'price_history' is ready.</p>";
 
-    // 3. Check if we already have data
+    // 4. Insert Dummy Products (if empty)
     $stmt = $pdo->query("SELECT COUNT(*) FROM products");
     if ($stmt->fetchColumn() == 0) {
-        
-        // Insert Mock Products
         $pdo->exec("INSERT INTO products (name, category, description, image_url) VALUES 
-            ('Sony WH-1000XM5', 'Electronics', 'Noise canceling headphones with 30hr battery.', 'https://m.media-amazon.com/images/I/51SKmu2G9FL._AC_SL1000_.jpg'),
-            ('MacBook Air M2', 'Laptops', 'Apple M2 chip, 13.6-inch Liquid Retina display.', 'https://m.media-amazon.com/images/I/71f5Eu5lJSL._AC_SL1500_.jpg'),
-            ('Samsung Galaxy S23', 'Smartphones', 'Android smartphone, 128GB, Lavender.', 'https://m.media-amazon.com/images/I/61VfL-aiToL._AC_SL1500_.jpg')
+            ('Sony WH-1000XM5', 'Electronics', 'Industry-leading noise canceling headphones.', 'https://m.media-amazon.com/images/I/51SKmu2G9FL._AC_SL1000_.jpg'),
+            ('MacBook Air M2', 'Laptops', 'Redesigned around the next-generation M2 chip.', 'https://m.media-amazon.com/images/I/71f5Eu5lJSL._AC_SL1500_.jpg'),
+            ('PlayStation 5', 'Gaming', 'The PS5 console unleashes new gaming possibilities.', 'https://m.media-amazon.com/images/I/51051FiD9UL._SL1000_.jpg')
         ");
-        echo "<li>Added 3 sample products.</li>";
-
-        // Insert Mock Price History (Linked to the products above)
-        // We assume IDs 1, 2, 3 were just created.
+        echo "<p>➕ Added 3 sample products.</p>";
+        
+        // Insert Dummy Prices
+        // We assume IDs 1, 2, 3 correspond to the products above
         $pdo->exec("INSERT INTO price_history (product_id, store_name, price, timestamp) VALUES 
             (1, 'Amazon', 348.00, NOW() - INTERVAL '5 days'),
-            (1, 'Amazon', 329.99, NOW()),
+            (1, 'Amazon', 329.00, NOW()),
             (1, 'BestBuy', 349.99, NOW()),
-            (2, 'Apple', 1099.00, NOW() - INTERVAL '10 days'),
-            (2, 'Amazon', 999.00, NOW()),
-            (3, 'Samsung', 799.99, NOW())
+            (2, 'Apple', 1199.00, NOW() - INTERVAL '30 days'),
+            (2, 'Amazon', 1049.00, NOW()),
+            (3, 'Walmart', 499.00, NOW()),
+            (3, 'Target', 499.99, NOW())
         ");
-        echo "<li>Added sample price history.</li>";
-        
+        echo "<p>➕ Added sample price history.</p>";
     } else {
-        echo "<li>Data already exists. Skipping insertion.</li>";
+        echo "<p>ℹ️ Data already exists. Skipping insertion.</p>";
     }
 
-    echo "<h3 style='color:green'>Success! Database is ready.</h3>";
-    echo "<p><a href='index.php'>Go to Dashboard</a></p>";
+    echo "<h3><a href='index.php'>Setup Complete! Click here to go to Dashboard</a></h3>";
 
 } catch (PDOException $e) {
     echo "<h3 style='color:red'>Error: " . $e->getMessage() . "</h3>";
