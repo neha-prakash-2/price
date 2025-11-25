@@ -1,43 +1,48 @@
 <?php
-// db_connect.php
-// Connects to a PostgreSQL database (like Neon)
-// Expects an environment variable 'DATABASE_URL'.
-// In Render, set DATABASE_URL to your Neon connection string.
+// Set error reporting for debugging (disable in production)
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
 
+// Initialize $pdo
 $pdo = null;
 
 try {
-    // Get the database URL from the environment variable
-    $db_url = getenv('DATABASE_URL');
+    // 1. Get the database URL from the environment
+    $databaseUrl = getenv('DATABASE_URL');
 
-    if ($db_url === false) {
-        die("Error: DATABASE_URL environment variable is not set.");
+    if ($databaseUrl === false || empty($databaseUrl)) {
+        // Use die() with plain text to avoid HTML parse errors in JSON endpoints
+        die("Database Error: DATABASE_URL environment variable is not set. Please configure it in your Render dashboard.");
     }
 
-    // Parse the connection string
-    $db_parts = parse_url($db_url);
+    // 2. Parse the URL
+    $url = parse_url($databaseUrl);
 
-    $host = $db_parts['host'];
-    $port = $db_parts['port'] ?? 5432; // default to 5432 if not specified
-    $dbname = ltrim($db_parts['path'], '/');
-    $user = $db_parts['user'];
-    $pass = $db_parts['pass'];
+    // 3. Validate that parsing was successful
+    if ($url === false || !isset($url['host']) || !isset($url['user']) || !isset($url['pass']) || !isset($url['path'])) {
+        die("Database Error: Invalid DATABASE_URL format. Expected format: postgres://user:password@host:port/dbname");
+    }
 
-    // Build DSN (Data Source Name)
-    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=require";
+    // 4. Extract components
+    $host = $url['host'];
+    $port = $url['port'] ?? 5432; // Default to 5432 if port is missing
+    $user = $url['user'];
+    $pass = $url['pass'];
+    $dbname = ltrim($url['path'], '/'); // Remove leading slash
 
-    // Set PDO options
-    $options = [
+    // 5. Create DSN
+    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname";
+
+    // 6. Connect
+    $pdo = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-    ];
-
-    // Create PDO instance
-    $pdo = new PDO($dsn, $user, $pass, $options);
+        PDO::ATTR_EMULATE_PREPARES   => true, // Fix for "cached plan must not change result type" error
+    ]);
 
 } catch (PDOException $e) {
-    // Handle connection error
-    die("Database connection failed: " . $e->getMessage());
+    // Hide the password in the error message for security
+    $safe_error = str_replace($pass, '****', $e->getMessage());
+    die("Database Connection Failed: " . $safe_error);
 }
 ?>
