@@ -150,7 +150,8 @@ if ($pdo) {
                         <div class="p-title"><?php echo htmlspecialchars($p['name']); ?></div>
                         
                         <?php if ($p['lowest_price']): ?>
-                            <div class="p-price">From ₹<?php echo number_format($p['lowest_price'], 2); ?></div>
+                            <!-- Converting USD to INR (Approx Rate: 84) -->
+                            <div class="p-price">From ₹<?php echo number_format($p['lowest_price'] * 84, 2); ?></div>
                         <?php else: ?>
                             <div class="p-price" style="color: #9ca3af; font-size: 1rem;">Price Unavailable</div>
                         <?php endif; ?>
