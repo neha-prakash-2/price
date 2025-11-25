@@ -138,8 +138,8 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
     <div class="header">
         <h1>Admin Dashboard</h1>
         <div>
-            <a href="index.php" style="margin-right: 15px; text-decoration: none; color: #374151;">&larr; View Site</a>
-            <a href="index.php?action=logout" style="color: #dc2626; text-decoration: none;">Logout</a>
+            <a href="user_panel.php" style="margin-right: 15px; text-decoration: none; color: #374151;">&larr; View Site</a>
+            <a href="logout.php?action=logout" style="color: #dc2626; text-decoration: none;">Logout</a>
         </div>
     </div>
 
