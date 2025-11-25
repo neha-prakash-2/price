@@ -5,13 +5,32 @@ require __DIR__ . '/db_connect.php';
 
 // 1. Security Check: Are they logged in AND an Admin?
 if (!isset($_SESSION['user_id']) || empty($_SESSION['is_admin'])) {
-    // Not an admin? Send them back to the main page.
     header("Location: index.php");
     exit;
 }
 
 $message = '';
 $error = '';
+
+/**
+ * Mock Function to simulate scraping prices from URLs.
+ * NOTE: Real scraping of Amazon/Flipkart requires APIs or Headless Browsers (Puppeteer/Selenium)
+ * because they block simple PHP requests with Captchas.
+ */
+function scrape_price_simulation($url) {
+    // 1. Try to detect store name
+    $store = 'Unknown Store';
+    if (strpos($url, 'amazon') !== false) $store = 'Amazon';
+    elseif (strpos($url, 'flipkart') !== false) $store = 'Flipkart';
+    elseif (strpos($url, 'myntra') !== false) $store = 'Myntra';
+    elseif (strpos($url, 'croma') !== false) $store = 'Croma';
+
+    // 2. Simulate a price (Random between $100 and $1000 for demo)
+    // In a real app, you would use an API like Rainforest API or scrape HTML here.
+    $price = rand(100, 1500) + 0.99; 
+
+    return ['store' => $store, 'price' => $price];
+}
 
 // 2. Handle Form Submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -22,18 +41,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $category = $_POST['category'];
         $desc = $_POST['description'];
         $img = $_POST['image_url'];
+        
+        // Get the array of links submitted
+        $product_links = $_POST['product_links'] ?? [];
 
         try {
+            // A. Insert Product
             $stmt = $pdo->prepare("INSERT INTO products (name, category, description, image_url) VALUES (?, ?, ?, ?)");
             $stmt->execute([$name, $category, $desc, $img]);
-            $message = "Product added successfully!";
+            $new_product_id = $pdo->lastInsertId();
+
+            // B. Process Links & "Scrape" Prices
+            $history_stmt = $pdo->prepare("INSERT INTO price_history (product_id, store_name, price, product_url) VALUES (?, ?, ?, ?)");
+            
+            $stores_added = 0;
+            foreach ($product_links as $link) {
+                $link = trim($link);
+                if (!empty($link)) {
+                    // "Scrape" the data
+                    $scraped_data = scrape_price_simulation($link);
+                    
+                    // Insert into DB
+                    $history_stmt->execute([
+                        $new_product_id, 
+                        $scraped_data['store'], 
+                        $scraped_data['price'], 
+                        $link
+                    ]);
+                    $stores_added++;
+                }
+            }
+
+            $message = "Product added successfully with $stores_added store links!";
         } catch (PDOException $e) {
             $error = "Error adding product: " . $e->getMessage();
         }
     }
 }
 
-// Handle Delete (via GET request)
+// Handle Delete
 if (isset($_GET['delete'])) {
     $id = (int)$_GET['delete'];
     try {
@@ -67,6 +113,11 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
         input, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         button { background: #4f46e5; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
         button:hover { background: #4338ca; }
+
+        /* Dynamic Input Styles */
+        .link-row { display: flex; gap: 10px; margin-bottom: 10px; }
+        .btn-add-more { background: #10b981; margin-top: 5px; font-size: 0.9em; }
+        .btn-remove { background: #ef4444; padding: 0 15px; }
 
         /* Table Styles */
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -103,6 +154,7 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
                 <label>Product Name</label>
                 <input type="text" name="name" required placeholder="e.g. iPhone 15">
             </div>
+            
             <div class="form-group" style="display:grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                 <div>
                     <label>Category</label>
@@ -113,11 +165,23 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
                     <input type="url" name="image_url" placeholder="https://...">
                 </div>
             </div>
+            
             <div class="form-group">
                 <label>Description</label>
                 <textarea name="description" rows="3"></textarea>
             </div>
-            <button type="submit" name="add_product">Add Product</button>
+
+            <div class="form-group">
+                <label>E-Commerce Links (Prices will be auto-fetched)</label>
+                <div id="links-container">
+                    <div class="link-row">
+                        <input type="url" name="product_links[]" placeholder="Paste Amazon, Flipkart, or Myntra link here..." required>
+                    </div>
+                </div>
+                <button type="button" class="btn-add-more" onclick="addLinkField()">+ Add Another Store Link</button>
+            </div>
+
+            <button type="submit" name="add_product" style="margin-top: 15px;">Add Product & Fetch Prices</button>
         </form>
     </div>
 
@@ -148,6 +212,19 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
         </table>
     </div>
 </div>
+
+<script>
+    function addLinkField() {
+        const container = document.getElementById('links-container');
+        const div = document.createElement('div');
+        div.className = 'link-row';
+        div.innerHTML = `
+            <input type="url" name="product_links[]" placeholder="Paste another link...">
+            <button type="button" class="btn-remove" onclick="this.parentElement.remove()">X</button>
+        `;
+        container.appendChild(div);
+    }
+</script>
 
 </body>
 </html>
