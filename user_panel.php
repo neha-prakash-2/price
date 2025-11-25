@@ -1,271 +1,189 @@
 <?php
-// index.php - Single-file login + user panel
-// Handles DB connection, Authentication, and Product Listing
-
+// user_panel.php - The Product Dashboard
+session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
-session_start();
 
-/* -----------------------
-   1) Robust Database Connection
-   ----------------------- */
-function get_pdo_connection(): PDO {
-    // 1. Try to get from Environment Variable
-    $databaseUrl = getenv('DATABASE_URL');
-
-    // 2. FALLBACK: If env var is missing, use your specific Neon credentials
-    if (empty($databaseUrl)) {
-        $databaseUrl = "postgres://neondb_owner:npg_yWIzGJ4iQ5vY@ep-wandering-wind-a4rihve0-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require";
-    }
-
-    // Clean up the URL
-    $databaseUrl = trim($databaseUrl);
-    $databaseUrl = str_replace(["\r\n","\r","\n"], '', $databaseUrl);
-    $databaseUrl = preg_replace('#^postgresql://#i', 'postgres://', $databaseUrl);
-
-    $parts = parse_url($databaseUrl);
-    
-    if (!$parts || empty($parts['host'])) {
-        throw new RuntimeException('Invalid Connection String.');
-    }
-
-    $host = $parts['host'];
-    $port = $parts['port'] ?? 5432;
-    $user = $parts['user'] ?? '';
-    $pass = $parts['pass'] ?? '';
-    $dbname = ltrim($parts['path'] ?? '', '/');
-    $sslmode = 'require'; 
-
-    // Build DSN
-    $dsn = "pgsql:host=$host;port=$port;dbname=$dbname;sslmode=$sslmode";
-
-    $options = [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-    ];
-
-    return new PDO($dsn, $user, $pass, $options);
-}
-
-// Initialize DB
-$pdo = null;
-$db_error = null;
-try {
-    $pdo = get_pdo_connection();
-} catch (Throwable $e) {
-    $db_error = $e->getMessage();
-}
-
-/* -----------------------
-   2) Helper Functions
-   ----------------------- */
-function esc($s) {
-    return htmlspecialchars($s ?? '', ENT_QUOTES, 'UTF-8');
-}
-
-/* -----------------------
-   3) Login / Logout Logic
-   ----------------------- */
-$login_errors = [];
-
-// Handle Login
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'login') {
-    $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
-
-    if (!$pdo) {
-        $login_errors[] = 'Database connection failed.';
-    } elseif ($email === '' || $password === '') {
-        $login_errors[] = 'Please enter email and password.';
-    } else {
-        try {
-            // NOTE: Changed 'password_hash' to 'password' to match your register.php
-            $stmt = $pdo->prepare('SELECT id, name, email, password, profile_photo FROM users WHERE email = :email LIMIT 1');
-            $stmt->execute([':email' => $email]);
-            $user = $stmt->fetch();
-
-            if ($user && password_verify($password, $user['password'])) {
-                session_regenerate_id(true);
-                $_SESSION['user_id'] = (int)$user['id'];
-                $_SESSION['name'] = $user['name'] ?? $user['email'];
-                $_SESSION['profile_photo'] = $user['profile_photo'];
-                
-                header('Location: index.php');
-                exit;
-            } else {
-                $login_errors[] = 'Invalid email or password.';
-            }
-        } catch (Throwable $e) {
-            $login_errors[] = 'Login error: ' . esc($e->getMessage());
-        }
-    }
-}
-
-// Handle Logout
-if (isset($_GET['action']) && $_GET['action'] === 'logout') {
-    $_SESSION = [];
-    session_destroy();
-    header('Location: index.php?logged_out=1');
+// 1. SECURITY: Redirect if not logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: index.php");
     exit;
 }
 
-/* -----------------------
-   4) User Panel Data Fetching
-   ----------------------- */
-$products = [];
-$products_error = null;
+// 2. DIRECT DATABASE CONNECTION
+// We include this directly here to ensure the dashboard works independently
+$host = "ep-wandering-wind-a4rihve0-pooler.us-east-1.aws.neon.tech";
+$dbname = "neondb";
+$user = "neondb_owner";
+$pass = "npg_yWIzGJ4iQ5vY"; 
+$sslmode = "require";
 
-if (isset($_SESSION['user_id']) && $pdo) {
+$pdo = null;
+$db_error = null;
+
+try {
+    $dsn = "pgsql:host=$host;port=5432;dbname=$dbname;sslmode=$sslmode";
+    $pdo = new PDO($dsn, $user, $pass);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $db_error = "Connection Failed: " . $e->getMessage();
+}
+
+// 3. FETCH PRODUCTS
+$products = [];
+$product_error = '';
+
+if ($pdo) {
     try {
-        // Ensure the 'prices' and 'products' tables exist or this will fail
-        // This query fetches products and finds their lowest price
+        // Robust query: Gets products even if they have no price history
         $sql = "
-            SELECT p.id, p.name, p.description, p.image_url, p.category,
-                   (SELECT MIN(price) FROM prices WHERE product_id = p.id) AS lowest_price
+            SELECT 
+                p.id, 
+                p.name, 
+                p.description, 
+                p.category, 
+                p.image_url,
+                (SELECT MIN(price) FROM price_history WHERE product_id = p.id) as lowest_price
             FROM products p
             ORDER BY p.id DESC
-            LIMIT 50
         ";
         $stmt = $pdo->query($sql);
         $products = $stmt->fetchAll();
-    } catch (Throwable $e) {
-        // If table doesn't exist, we just show empty list
-        $products_error = "Could not fetch products (Tables might be missing): " . $e->getMessage();
+    } catch (PDOException $e) {
+        $product_error = "Error fetching products: " . $e->getMessage();
     }
 }
 ?>
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PriceComp Panel</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-    :root{font-family:Inter,system-ui,sans-serif}
-    body{margin:0;background:#f3f4f6;color:#111}
-    .container{max-width:1100px;margin:2rem auto;padding:1rem}
-    .card{background:#fff;border-radius:12px;padding:1rem;border:1px solid #e6e6e6; box-shadow: 0 2px 4px rgba(0,0,0,0.05);}
-    .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
-    .logo{font-weight:700;font-size:1.25rem}
-    .user-info{display:flex;align-items:center;gap:.6rem}
-    .user-info img{width:36px;height:36px;border-radius:50%;object-fit:cover;border: 1px solid #ddd;}
-    
-    /* Login Styles */
-    .login-wrap{display:flex;justify-content:center;align-items:center;height:70vh}
-    .login-box{width:360px;padding:2rem;}
-    input{width:100%;padding:.75rem;margin:.5rem 0;border:1px solid #e5e7eb;border-radius:8px;box-sizing: border-box;}
-    button{width:100%;padding:.75rem;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-weight:600;cursor: pointer;}
-    button:hover{background:#4338ca;}
-    .errors{background:#fee2e2;color:#991b1b;padding:.6rem;border-radius:6px;margin-bottom:1rem;font-size: 0.9em;}
-    
-    /* Grid Styles */
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.5rem; margin-top: 1rem;}
-    .card-prod{background:#fff;border-radius:12px;padding:1rem;border:1px solid #e5e7eb;display:flex;flex-direction:column;}
-    .card-prod img{width:100%;height:150px;object-fit:cover;border-radius:8px;background: #f0f0f0;}
-    .price{font-weight:700;color:#10b981;margin-top:auto;font-size: 1.1em;}
-    .btn{display:block;margin-top:.75rem;padding:.5rem;background:#4f46e5;color:#fff;text-align:center;border-radius:6px;text-decoration:none}
-    
-    .search-wrap { display: flex; gap: 10px; margin-bottom: 20px;}
-    .search-wrap input { margin: 0; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - PriceComp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #f3f4f6; margin: 0; padding: 20px; color: #1f2937; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        
+        /* Header */
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .logo { font-size: 1.5rem; font-weight: 700; color: #4f46e5; text-decoration: none; }
+        .user-nav span { color: #374151; font-weight: 500; }
+        .user-nav a { text-decoration: none; margin-left: 15px; font-weight: 600; }
+        .logout-btn { color: #dc2626; }
+        .admin-btn { color: #4f46e5; background: #e0e7ff; padding: 5px 10px; border-radius: 6px; }
+
+        /* Search */
+        .search-container { margin-bottom: 20px; }
+        .search-bar { width: 100%; max-width: 400px; padding: 12px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 1rem; }
+
+        /* Grid */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
+        
+        .product-card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; transition: transform 0.2s; display: flex; flex-direction: column; }
+        .product-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .p-img { width: 100%; height: 180px; object-fit: cover; background: #f9fafb; border-bottom: 1px solid #f3f4f6; }
+        .p-body { padding: 15px; flex-grow: 1; display: flex; flex-direction: column; }
+        .p-cat { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+        .p-title { font-size: 1.1rem; font-weight: 600; margin: 0 0 10px 0; color: #111; }
+        .p-price { font-size: 1.25rem; font-weight: 700; color: #059669; margin-top: auto; }
+        .btn-view { display: block; text-align: center; background: #f3f4f6; color: #374151; text-decoration: none; padding: 10px; margin-top: 15px; border-radius: 6px; font-weight: 600; transition: background 0.2s; }
+        .btn-view:hover { background: #e5e7eb; color: #111; }
+
+        .error-banner { background: #fee2e2; color: #991b1b; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #fca5a5; }
+        .empty-state { text-align: center; padding: 40px; background: white; border-radius: 8px; color: #6b7280; }
+    </style>
 </head>
 <body>
 
 <div class="container">
+    <!-- Header -->
     <div class="header">
-        <div class="logo">PriceComp</div>
-        <?php if (isset($_SESSION['user_id'])): ?>
-            <div class="user-info">
-                <span>Welcome, <strong><?php echo esc($_SESSION['name']); ?></strong></span>
-                <a href="index.php?action=logout" style="color:#ef4444;text-decoration:none;font-size:0.9em;margin-left:10px;">Logout</a>
-            </div>
-        <?php endif; ?>
+        <a href="user_panel.php" class="logo">PriceComp</a>
+        <div class="user-nav">
+            <span>Welcome, <b><?php echo htmlspecialchars($_SESSION['name'] ?? 'User'); ?></b></span>
+            
+            <?php if (!empty($_SESSION['is_admin'])): ?>
+                <a href="admin_panel.php" class="admin-btn">Admin Panel</a>
+            <?php endif; ?>
+            
+            <a href="index.php?action=logout" class="logout-btn">Logout</a>
+        </div>
     </div>
 
-    <!-- CONNECTION ERROR -->
-    <?php if (!$pdo): ?>
-        <div class="card" style="border-left: 4px solid red;">
-            <h3>Database Error</h3>
-            <p><?php echo esc($db_error); ?></p>
+    <!-- Error Messages -->
+    <?php if ($db_error): ?>
+        <div class="error-banner">
+            <strong>Database Error:</strong> <?php echo htmlspecialchars($db_error); ?>
         </div>
     <?php endif; ?>
 
-    <!-- VIEW 1: NOT LOGGED IN -->
-    <?php if (!isset($_SESSION['user_id'])): ?>
-        <div class="login-wrap">
-            <div class="login-box card">
-                <h2>Sign In</h2>
-                
-                <?php if ($login_errors): ?>
-                    <div class="errors"><?php echo implode('<br>', $login_errors); ?></div>
-                <?php endif; ?>
-                
-                <?php if (isset($_GET['logged_out'])): ?>
-                    <div style="color:green; margin-bottom:10px;">Logged out successfully.</div>
-                <?php endif; ?>
-
-                <form method="post">
-                    <input type="hidden" name="action" value="login">
-                    <label>Email <input type="email" name="email" required></label>
-                    <label>Password <input type="password" name="password" required></label>
-                    <button type="submit">Login</button>
-                </form>
-                <div style="margin-top:15px; font-size:0.9em; color:#666;">
-                    No account? <a href="register.php">Register here</a>
-                </div>
-            </div>
+    <?php if ($product_error): ?>
+        <div class="error-banner">
+            <strong>Data Error:</strong> <?php echo htmlspecialchars($product_error); ?>
         </div>
+    <?php endif; ?>
 
-    <!-- VIEW 2: LOGGED IN (USER PANEL) -->
+    <!-- Search Bar -->
+    <div class="search-container">
+        <input type="text" id="searchInput" class="search-bar" placeholder="Filter products by name or category...">
+    </div>
+
+    <!-- Product Grid -->
+    <?php if (empty($products)): ?>
+        <div class="empty-state">
+            <h3>No products found</h3>
+            <p>The database is connected, but the product list is empty.</p>
+        </div>
     <?php else: ?>
-        <div class="card">
-            <h3>Product Dashboard</h3>
-            
-            <div class="search-wrap">
-                <input type="text" id="searchInput" placeholder="Filter products...">
-            </div>
-
-            <?php if ($products_error): ?>
-                <p style="color:red;"><?php echo esc($products_error); ?></p>
-                <p><em>Note: You need to create the 'products' and 'prices' tables in your database.</em></p>
-            <?php elseif (empty($products)): ?>
-                <p>No products found in database.</p>
-            <?php else: ?>
-                <div class="grid" id="grid">
-                    <?php foreach ($products as $p): ?>
-                        <div class="card-prod" data-title="<?php echo esc(strtolower($p['name'])); ?>">
-                            <img src="<?php echo esc($p['image_url']); ?>" alt="img">
-                            <h4 style="margin:10px 0 5px 0"><?php echo esc($p['name']); ?></h4>
-                            <div style="color:#666;font-size:0.9em;margin-bottom:10px;">
-                                <?php echo esc($p['category']); ?>
-                            </div>
-                            
-                            <?php if ($p['lowest_price']): ?>
-                                <div class="price">$<?php echo number_format($p['lowest_price'], 2); ?></div>
-                            <?php else: ?>
-                                <div class="price" style="color:#999">No price</div>
-                            <?php endif; ?>
-                            
-                            <a href="product_details.php?id=<?php echo $p['id']; ?>" class="btn">View Details</a>
-                        </div>
-                    <?php endforeach; ?>
+        <div class="grid" id="productGrid">
+            <?php foreach ($products as $p): ?>
+                <div class="product-card" data-name="<?php echo strtolower(htmlspecialchars($p['name'])); ?>" data-cat="<?php echo strtolower(htmlspecialchars($p['category'])); ?>">
+                    <?php 
+                        $img = !empty($p['image_url']) ? $p['image_url'] : 'https://placehold.co/300x200?text=No+Image'; 
+                    ?>
+                    <img src="<?php echo htmlspecialchars($img); ?>" class="p-img" alt="Product Image" onerror="this.src='https://placehold.co/300x200?text=Error'">
+                    
+                    <div class="p-body">
+                        <span class="p-cat"><?php echo htmlspecialchars($p['category']); ?></span>
+                        <div class="p-title"><?php echo htmlspecialchars($p['name']); ?></div>
+                        
+                        <?php if ($p['lowest_price']): ?>
+                            <div class="p-price">From $<?php echo number_format($p['lowest_price'], 2); ?></div>
+                        <?php else: ?>
+                            <div class="p-price" style="color: #9ca3af; font-size: 1rem;">Price Unavailable</div>
+                        <?php endif; ?>
+                        
+                        <a href="product_details.php?id=<?php echo $p['id']; ?>" class="btn-view">Compare Prices</a>
+                    </div>
                 </div>
-            <?php endif; ?>
+            <?php endforeach; ?>
         </div>
     <?php endif; ?>
 </div>
 
 <script>
-    // Simple filter script
-    document.getElementById('searchInput')?.addEventListener('keyup', function(e) {
-        const term = e.target.value.toLowerCase();
-        document.querySelectorAll('.card-prod').forEach(card => {
-            const title = card.getAttribute('data-title');
-            card.style.display = title.includes(term) ? 'flex' : 'none';
+    // Search Filter Script
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function(e) {
+            const term = e.target.value.toLowerCase();
+            const cards = document.querySelectorAll('.product-card');
+            
+            cards.forEach(card => {
+                const name = card.getAttribute('data-name');
+                const cat = card.getAttribute('data-cat');
+                
+                if (name.includes(term) || cat.includes(term)) {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
         });
-    });
+    }
 </script>
+
 </body>
 </html>
