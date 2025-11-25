@@ -108,7 +108,7 @@ if ($pdo) {
                 <a href="admin_panel.php" class="admin-btn">Admin Panel</a>
             <?php endif; ?>
             
-            <a href="index.php?action=logout" class="logout-btn">Logout</a>
+            <a href="logout.php?action=logout" class="logout-btn">Logout</a>
         </div>
     </div>
 
