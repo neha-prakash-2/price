@@ -1,91 +1,94 @@
 <?php
-// db.php - improved DATABASE_URL parsing + PDO connection
-// NOTE: Keep display_errors OFF in production.
+// db_connect.php - tolerant PostgreSQL connector (drop-in)
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
 $pdo = null;
-$pass = ''; // define early so catch block can safely reference it
+$pdo_error = null;
+
+function normalize_url(string $u): string {
+    $u = trim($u);
+    // strip surrounding quotes (single or double)
+    if ((substr($u,0,1) === "'" && substr($u,-1) === "'") ||
+        (substr($u,0,1) === '"' && substr($u,-1) === '"')) {
+        $u = substr($u,1,-1);
+    }
+    // remove stray newlines
+    $u = str_replace(["\r\n","\r","\n"], '', $u);
+    // normalize scheme
+    $u = preg_replace('#^postgresql://#i', 'postgres://', $u);
+    return $u;
+}
+
+function mask_url($u) {
+    return preg_replace('/(\/\/[^:]+:)([^@]+)(@)/', '$1****$3', $u);
+}
 
 try {
-    // 1) Get DATABASE_URL from environment (supports getenv and $_ENV)
+    // 1) Prefer DATABASE_URL if present
     $databaseUrl = getenv('DATABASE_URL') ?: ($_ENV['DATABASE_URL'] ?? null);
 
-    if ($databaseUrl === false || empty($databaseUrl)) {
-        // plain text die is useful for JSON endpoints / CLI
-        die("Database Error: DATABASE_URL environment variable is not set. Please configure it.");
+    if (!empty($databaseUrl)) {
+        $databaseUrl = normalize_url($databaseUrl);
+        $parts = parse_url($databaseUrl);
+        if ($parts === false || empty($parts['host']) || empty($parts['user']) || !isset($parts['pass']) || empty($parts['path'])) {
+            throw new RuntimeException("Invalid DATABASE_URL format detected: " . mask_url($databaseUrl));
+        }
+
+        $host = $parts['host'];
+        $port = $parts['port'] ?? 5432;
+        $user = rawurldecode($parts['user']);
+        $pass = rawurldecode($parts['pass']);
+        $dbname = ltrim(rawurldecode($parts['path']), '/');
+
+        $query = [];
+        if (!empty($parts['query'])) parse_str($parts['query'], $query);
+
+        $dsn = "pgsql:host={$host};port={$port};dbname={$dbname}";
+        if (!empty($query['sslmode'])) {
+            $dsn .= ";sslmode={$query['sslmode']}";
+        }
+
+    } else {
+        // 2) Fallback to separate env vars (useful if the platform sets these)
+        $host = getenv('DB_HOST') ?: ($_ENV['DB_HOST'] ?? null);
+        $port = getenv('DB_PORT') ?: ($_ENV['DB_PORT'] ?? 5432);
+        $user = getenv('DB_USER') ?: ($_ENV['DB_USER'] ?? null);
+        $pass = getenv('DB_PASS') ?: ($_ENV['DB_PASS'] ?? null);
+        $dbname = getenv('DB_NAME') ?: ($_ENV['DB_NAME'] ?? null);
+
+        if (empty($host) || empty($user) || empty($pass) || empty($dbname)) {
+            throw new RuntimeException("No DATABASE_URL and DB_HOST/DB_USER/DB_PASS/DB_NAME fallback not fully set.");
+        }
+
+        $dsn = "pgsql:host={$host};port={$port};dbname={$dbname}";
+        // optional SSL via DB_SSLMODE
+        $sslmode = getenv('DB_SSLMODE') ?: ($_ENV['DB_SSLMODE'] ?? null);
+        if (!empty($sslmode)) $dsn .= ";sslmode={$sslmode}";
     }
 
-    // 2) Normalize scheme (allow postgres:// and postgresql://)
-    $databaseUrl = preg_replace('#^postgresql://#', 'postgres://', $databaseUrl);
-
-    // 3) Parse the URL
-    $parts = parse_url($databaseUrl);
-    if ($parts === false) {
-        die("Database Error: Failed to parse DATABASE_URL.");
-    }
-
-    // 4) Validate required components
-    if (empty($parts['host']) || empty($parts['user']) || !isset($parts['pass']) || empty($parts['path'])) {
-        die("Database Error: Invalid DATABASE_URL format. Expected: postgres://user:password@host:port/dbname");
-    }
-
-    // 5) Extract components and decode percent-encoding
-    $host = $parts['host'];
-    $port = $parts['port'] ?? 5432;
-    $user = rawurldecode($parts['user']);
-    $pass = rawurldecode($parts['pass']);
-    $dbname = ltrim(rawurldecode($parts['path']), '/');
-
-    // 6) Query string (e.g., sslmode=require & other options)
-    $query = [];
-    if (!empty($parts['query'])) {
-        parse_str($parts['query'], $query);
-    }
-
-    // Build DSN - include sslmode if provided in query string
-    $dsnParts = [
-        "host=$host",
-        "port=$port",
-        "dbname=$dbname"
-    ];
-
-    if (!empty($query['sslmode'])) {
-        // Append sslmode directly into DSN: pgsql:host=...;port=...;dbname=...;sslmode=require
-        $dsnParts[] = "sslmode=" . $query['sslmode'];
-    }
-
-    $dsn = 'pgsql:' . implode(';', $dsnParts);
-
-    // 7) PDO options
-    // NOTE: For PostgreSQL, sometimes ATTR_EMULATE_PREPARES must be true to avoid certain driver errors,
-    // but using native prepares (emulate=false) is more secure and recommended where possible.
-    // If you previously set emulate => true to fix "cached plan must not change result type" errors,
-    // keep that for your environment — otherwise set to false.
-    $pdoOptions = [
+    // create PDO
+    $pdo = new PDO($dsn, $user, $pass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        // Change this depending on your environment. Start with false (native prepares), switch to true if needed.
         PDO::ATTR_EMULATE_PREPARES   => false,
-    ];
+    ]);
 
-    // 8) Create PDO
-    $pdo = new PDO($dsn, $user, $pass, $pdoOptions);
-
-    // Optional: verify connection quickly (comment out in heavy production)
-    // $pdo->query('SELECT 1');
-
-    // Connected
-    // (You can remove the echo in production or replace with logging)
-    // echo "Database connected successfully.";
-
-} catch (PDOException $e) {
-    // Hide password in exception output (defensive)
-    $safeMessage = $e->getMessage();
-    if (!empty($pass)) {
-        $safeMessage = str_replace($pass, '****', $safeMessage);
+} catch (Throwable $ex) {
+    // mask password if it exists in the exception text
+    $msg = $ex->getMessage();
+    if (isset($pass) && $pass !== null && $pass !== '') {
+        $msg = str_replace($pass, '****', $msg);
     }
-    // Use die() for simplicity; in apps prefer logging and returning a friendly error response
-    die("Database Connection Failed: " . $safeMessage);
+    // also mask any URL-looking strings
+    $msg = preg_replace('/postgres(s)?:\/\/[^\\s]+/i', '[DATABASE_URL]', $msg);
+
+    // Save a sanitized error for later display if needed
+    $pdo_error = $msg;
+
+    // If this file is included in a page that expects $pdo to exist, we stop here to avoid other errors.
+    // You can change die() to error_log() + graceful fallback in production.
+    die("Database Connection Failed: " . $pdo_error);
 }
-?>
+
+// Optionally: export $pdo and $pdo_error to global scope (already set)
