@@ -48,8 +48,8 @@ while ($row = $hist_stmt->fetch()) {
     $store = $row['store_name'];
     if (!isset($stores_data[$store])) $stores_data[$store] = [];
     
-    // CONVERSION: Multiply by 84 to convert simulated USD DB data to INR
-    $price_inr = (float)$row['price'] * 84;
+    // FIX: Removed * 84 multiplier. Now uses exact DB value.
+    $price_inr = (float)$row['price'];
     
     $stores_data[$store][] = [
         'x' => $row['timestamp'],
@@ -172,8 +172,8 @@ $current_prices = $price_stmt->fetchAll();
                                 </div>
                             </div>
                             <div style="text-align: right;">
-                                <!-- CONVERSION: Display INR with Multiplier -->
-                                <div class="price-val">₹<?php echo number_format($p['price'] * 84, 2); ?></div>
+                                <!-- FIX: Display exact DB price without multiplier -->
+                                <div class="price-val">₹<?php echo number_format($p['price'], 2); ?></div>
                                 <div style="margin-top:5px;">
                                     <a href="<?php echo htmlspecialchars($p['product_url']); ?>" target="_blank" class="btn-visit">Visit Link</a>
                                 </div>
@@ -218,9 +218,8 @@ $current_prices = $price_stmt->fetchAll();
                         },
                         y: {
                             beginAtZero: false,
-                            title: { display: true, text: 'Price (₹)' }, // Updated Label
+                            title: { display: true, text: 'Price (₹)' },
                             ticks: {
-                                // Add Rupee symbol to Y-axis
                                 callback: function(value) { return '₹' + value; }
                             }
                         }
