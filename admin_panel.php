@@ -170,6 +170,8 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
         <h1>Admin Dashboard</h1>
         <a href="index.php" style="color:#4f46e5; font-weight:600; text-decoration:none;">&larr; Back to Site</a>
     </div>
+     <a href="logout.php" style="color:#4f46e5; font-weight:600; text-decoration:none;">&larr; logout</a>
+    </div>
 
     <?php if ($message) echo "<div class='msg success'>$message</div>"; ?>
     <?php if ($error) echo "<div class='msg error'>$error</div>"; ?>
