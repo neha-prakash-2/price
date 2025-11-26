@@ -133,13 +133,7 @@ try {
                         <span class="p-cat"><?php echo htmlspecialchars($p['category']); ?></span>
                         <div class="p-title"><?php echo htmlspecialchars($p['name']); ?></div>
                         
-                        <div class="p-price-area">
-                            <?php if ($p['lowest_price']): ?>
-                                <div class="p-price">From ₹<?php echo number_format($p['lowest_price'], 2); ?></div>
-                            <?php else: ?>
-                                <div class="p-no-price">Price Unavailable</div>
-                            <?php endif; ?>
-                        </div>
+
                         
                         <a href="product_details.php?id=<?php echo $p['id']; ?>" class="btn-view">Compare Prices</a>
                     </div>
