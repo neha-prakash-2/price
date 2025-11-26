@@ -23,21 +23,22 @@ function fetch_url_advanced($url) {
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     
-    // Cookie Handling (Essential for keeping sessions alive during redirects)
+    // IMPORTANT: Handle GZIP compression (Amazon sends compressed HTML)
+    curl_setopt($ch, CURLOPT_ENCODING, ''); 
+    
+    // Cookie Handling
     $cookieFile = sys_get_temp_dir() . '/cookie_jar.txt';
     curl_setopt($ch, CURLOPT_COOKIEJAR, $cookieFile);
     curl_setopt($ch, CURLOPT_COOKIEFILE, $cookieFile);
 
-    // mimic a real modern browser
+    // Mimic a real user visiting from Google
     $headers = [
         'Upgrade-Insecure-Requests: 1',
         'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36',
         'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Sec-Fetch-Site: none',
-        'Sec-Fetch-Mode: navigate',
-        'Sec-Fetch-User: ?1',
-        'Sec-Fetch-Dest: document',
         'Accept-Language: en-US,en;q=0.9',
+        'Referer: https://www.google.com/',
+        'Cache-Control: max-age=0',
     ];
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     
@@ -53,6 +54,11 @@ function get_real_price($url) {
     $html = fetch_url_advanced($url);
     if (!$html) return 0;
 
+    // Check for Blocking/Captcha
+    if (strpos($html, 'Type the characters you see in this image') !== false) {
+        return -1; // Blocked indicator
+    }
+
     $dom = new DOMDocument();
     @$dom->loadHTML($html);
     $xpath = new DOMXPath($dom);
@@ -64,19 +70,14 @@ function get_real_price($url) {
             '//*[@class="a-price-whole"]',
             '//*[@id="priceblock_ourprice"]',
             '//*[@id="priceblock_dealprice"]',
-            '//*[@id="corePrice_desktop"]//*[@class="a-offscreen"]',
-            '//*[@id="corePriceDisplay_desktop_feature_div"]//*[@class="a-offscreen"]',
-            '//span[contains(@class, "a-price")]/span[@class="a-offscreen"]'
+            '//*[@class="a-price"]/*[@class="a-offscreen"]',
+            '//*[@id="corePriceDisplay_desktop_feature_div"]//*[@class="a-offscreen"]'
         ];
         foreach ($queries as $q) {
             $nodes = $xpath->query($q);
             if ($nodes->length > 0) { 
-                // clean text immediately to check if we got a number
                 $text = trim($nodes->item(0)->textContent);
-                if (!empty($text)) {
-                    $raw_price = $text;
-                    break; 
-                }
+                if (!empty($text)) { $raw_price = $text; break; }
             }
         }
     } elseif (strpos($url, 'flipkart') !== false) {
@@ -87,12 +88,12 @@ function get_real_price($url) {
         }
     }
 
-    // --- STRATEGY 2: REGEX FALLBACK ---
-    // If DOM failed, scan the raw HTML for price patterns like ₹1,234
+    // --- STRATEGY 2: REGEX FALLBACK (If DOM fails) ---
+    // Look for text patterns like ₹ 1,234 or ₹1234 inside the raw HTML
     if (!$raw_price) {
-        // Pattern matches: ₹ or Rs. followed by numbers and commas
-        // Example: ₹12,999
-        if (preg_match('/[₹|Rs\.?]\s*([0-9,]+)/', $html, $matches)) {
+        // Pattern matches: ₹ symbol, optional space, digits, commas, optional decimals
+        // Example matches: ₹1,299 | ₹ 1299.00
+        if (preg_match('/₹\s?([0-9,]+(?:\.[0-9]{1,2})?)/u', $html, $matches)) {
             $raw_price = $matches[1];
         }
     }
@@ -125,8 +126,8 @@ try {
         echo "<div>Scanning <strong>$store</strong> (ID: $pid)... ";
         flush();
 
-        // 2. Sleep to avoid instant blocking (Human behavior simulation)
-        sleep(rand(2, 4));
+        // 2. Random delay (2-5 seconds) to mimic human behavior
+        sleep(rand(2, 5));
 
         // 3. Get Price
         $new_price = get_real_price($url);
@@ -138,8 +139,11 @@ try {
             
             echo "<span style='color:green; font-weight:bold;'>FOUND: ₹$new_price</span></div>";
             $count++;
+        } elseif ($new_price == -1) {
+            echo "<span style='color:orange;'>CAPTCHA BLOCKED</span> (Server IP flagged).</div>";
+            $failed++;
         } else {
-            echo "<span style='color:red;'>BLOCKED/NOT FOUND</span> (Site returned 0).</div>";
+            echo "<span style='color:red;'>NOT FOUND</span> (Structure changed or no data).</div>";
             $failed++;
         }
         flush();
@@ -157,4 +161,3 @@ try {
 }
 
 echo "</body></html>";
-?>
