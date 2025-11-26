@@ -217,6 +217,7 @@ $products = $pdo->query("SELECT * FROM products ORDER BY id DESC")->fetchAll(PDO
             <!-- UPDATE BUTTON: Opens the script in a new tab -->
             <a href="cron_update_prices.php" target="_blank" class="btn-update">🚀 Run Auto-Update</a>
             <a href="index.php" style="color:#4f46e5; text-decoration:none; font-weight:600;">Back to Site</a>
+             <a href="logout.php" style="color:#4f46e5; text-decoration:none; font-weight:600;">Logout</a>
         </div>
     </div>
 
